@@ -107,6 +107,36 @@ func TestImageRef_WebP__NearLossless(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestImageRef_WebP__TargetSize(t *testing.T) {
+	require.NoError(t, Startup(nil))
+
+	if MajorVersion < 8 || (MajorVersion == 8 && MinorVersion < 17) ||
+		(MajorVersion == 8 && MinorVersion == 17 && MicroVersion < 4) {
+		t.Skipf("webpsave target_size requires libvips 8.17.4+, found %s", Version)
+	}
+
+	srcBytes, err := os.ReadFile(resources + "png-24bit.png")
+	require.NoError(t, err)
+
+	src := bytes.NewReader(srcBytes)
+	img, err := NewImageFromReader(src)
+	require.NoError(t, err)
+	require.NotNil(t, img)
+
+	defaultOut, _, err := img.ExportWebp(NewWebpExportParams())
+	require.NoError(t, err)
+
+	// TargetSize asks libvips to search for a quality that lands near this
+	// budget instead of the default fixed Quality. Setting it well below the
+	// default-quality output size should shrink the result.
+	params := NewWebpExportParams()
+	params.TargetSize = len(defaultOut) / 4
+	targetOut, _, err := img.ExportWebp(params)
+	require.NoError(t, err)
+
+	assert.Less(t, len(targetOut), len(defaultOut))
+}
+
 func TestImageRef_PNG(t *testing.T) {
 	require.NoError(t, Startup(nil))
 
