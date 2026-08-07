@@ -41,6 +41,12 @@ type ImageRef struct {
 	lock                sync.Mutex
 	preMultiplication   *PreMultiplicationState
 	optimizedIccProfile string
+
+	// streamSource is non-nil for sequentially stream-loaded images
+	// (LoadImageFromReader with AccessSequential): the image pulls
+	// pixels from the source on demand, so the C source and the Go
+	// reader stay alive until Close or materialize. See stream.go.
+	streamSource *streamSourceRef
 }
 
 // ImageMetadata is a data structure holding the width, height, orientation and other metadata of the picture.
@@ -469,7 +475,10 @@ func NewMagickExportParams() *MagickExportParams {
 	}
 }
 
-// NewImageFromReader loads an ImageRef from the given reader
+// NewImageFromReader loads an ImageRef from the given reader by reading
+// the entire stream into memory first (io.ReadAll). For large inputs
+// prefer LoadImageFromReader, which streams compressed bytes through
+// libvips without buffering the whole input in Go memory.
 func NewImageFromReader(r io.Reader) (*ImageRef, error) {
 	buf, err := io.ReadAll(r)
 	if err != nil {
@@ -822,7 +831,16 @@ func (r *ImageRef) Close() {
 
 	r.buf = nil
 
+	// Release the streaming source only after the image is gone: the
+	// image may still hold references that read from the source.
+	src := r.streamSource
+	r.streamSource = nil
+
 	r.lock.Unlock()
+
+	if src != nil {
+		src.release()
+	}
 }
 
 // SetKill sets the libvips kill flag used to stop image evaluation.
